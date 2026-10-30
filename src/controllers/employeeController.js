@@ -12,16 +12,15 @@ exports.listEmployees = asyncHandler(async (req, res) => {
 
 // POST /api/employees
 exports.createEmployee = asyncHandler(async (req, res) => {
-  const { name, designation = '', dept = '', place = '', ctc = 0, doj = '' } = req.body;
+  const { name, designation = '', dept = '', place = '', ctc = 0, doj = '', bankName = '', accountNo = '', ifsc = '' } = req.body;
   if (!String(name || '').trim()) throw new ApiError(400, 'Name is required');
-  // If a soft-deleted employee with same name exists, restore + update instead
   const existing = await Employee.findOne({ name: name.trim() });
   if (existing && existing.deletedAt) {
-    existing.set({ designation, dept, place, ctc: Number(ctc) || 0, doj, deletedAt: null });
+    existing.set({ designation, dept, place, ctc: Number(ctc) || 0, doj, bankName, accountNo, ifsc, deletedAt: null });
     await existing.save();
     return res.status(201).json(toEmp(existing.toJSON()));
   }
-  const emp = await Employee.create({ name: name.trim(), designation, dept, place, ctc: Number(ctc) || 0, doj });
+  const emp = await Employee.create({ name: name.trim(), designation, dept, place, ctc: Number(ctc) || 0, doj, bankName, accountNo, ifsc });
   res.status(201).json(toEmp(emp.toJSON()));
 });
 
