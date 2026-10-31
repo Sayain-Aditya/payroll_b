@@ -7,6 +7,7 @@ const HEADERS = {
   bankname: 'bankName', bank: 'bankName',
   accountno: 'accountNo', accno: 'accountNo', accountnumber: 'accountNo', bankaccountno: 'accountNo',
   ifsc: 'ifsc', ifsccode: 'ifsc',
+  company: 'company', companyname: 'company', client: 'company',
 };
 
 const norm = (h) => String(h || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -26,7 +27,7 @@ function normDept(v) {
 }
 
 /** @returns {{ rows: object[], warnings: string[] }} */
-function parseExcel(buffer) {
+function parseExcel(buffer, companyOverride = '') {
   const wb = XLSX.read(buffer, { type: 'buffer', cellDates: true });
   const ws = wb.Sheets[wb.SheetNames[0]];
   const raw = XLSX.utils.sheet_to_json(ws, { defval: '', raw: true });
@@ -69,6 +70,7 @@ function parseExcel(buffer) {
       bankName: String(o.bankName || '').trim(),
       accountNo: String(o.accountNo || '').trim(),
       ifsc: String(o.ifsc || '').trim().toUpperCase(),
+      company: companyOverride || String(o.company || '').trim(),
     });
   });
 

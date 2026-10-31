@@ -15,7 +15,7 @@ exports.getSheet = asyncHandler(async (req, res) => {
   assertMonth(req.query.month);
   const rows = await Sheet.find({ month: req.query.month, deletedAt: null }, '-deletedAt -createdAt -updatedAt -__v').sort({ createdAt: 1 }).lean();
   const empIds = [...new Set(rows.map((r) => String(r.employeeId)))];
-  const emps = await Employee.find({ _id: { $in: empIds } }, 'name designation dept place doj ctc').lean();
+  const emps = await Employee.find({ _id: { $in: empIds } }, 'name designation dept place doj ctc company').lean();
   const empMap = Object.fromEntries(emps.map((e) => [String(e._id), e]));
   res.json({ rows: rows.map((r, i) => mergeRow(r, empMap[String(r.employeeId)], i + 1)) });
 });
@@ -100,7 +100,7 @@ exports.importExcel = asyncHandler(async (req, res) => {
   assertMonth(req.body.month);
   if (!req.file) throw new ApiError(400, 'Excel file is required (field name: file)');
 
-  const { rows, warnings } = parseExcel(req.file.buffer);
+  const { rows, warnings } = parseExcel(req.file.buffer, req.body.company || '');
   if (!rows.length) throw new ApiError(400, 'No employee rows found in the sheet');
 
   const month = req.body.month;
@@ -109,7 +109,7 @@ exports.importExcel = asyncHandler(async (req, res) => {
   const empDocs = await Promise.all(rows.map((p) =>
     Employee.findOneAndUpdate(
       { name: p.name },
-      { $set: { designation: p.designation || '', dept: p.dept || '', place: p.place || '', ...(p.ctc != null && { ctc: p.ctc }), ...(p.doj && { doj: p.doj }), ...(p.bankName && { bankName: p.bankName }), ...(p.accountNo && { accountNo: p.accountNo }), ...(p.ifsc && { ifsc: p.ifsc }), deletedAt: null } },
+      { $set: { designation: p.designation || '', dept: p.dept || '', place: p.place || '', ...(p.company && { company: p.company }), ...(p.ctc != null && { ctc: p.ctc }), ...(p.doj && { doj: p.doj }), ...(p.bankName && { bankName: p.bankName }), ...(p.accountNo && { accountNo: p.accountNo }), ...(p.ifsc && { ifsc: p.ifsc }), deletedAt: null } },
       { upsert: true, new: true, setDefaultsOnInsert: true }
     )
   ));
@@ -156,5 +156,6 @@ function mergeRow(row, emp, srNo) {
     dept: emp?.dept ?? '',
     place: emp?.place ?? '',
     doj: emp?.doj ?? '',
+    company: emp?.company ?? '',
   };
 }

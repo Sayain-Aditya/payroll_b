@@ -11,6 +11,7 @@ const employeeSchema = new mongoose.Schema(
     bankName: { type: String, trim: true, default: '' },
     accountNo: { type: String, trim: true, default: '' },
     ifsc: { type: String, trim: true, default: '' },
+    company: { type: String, trim: true, default: '' },
     deletedAt: { type: Date, default: null },
   },
   { timestamps: true }

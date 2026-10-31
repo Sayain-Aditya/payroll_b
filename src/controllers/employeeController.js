@@ -12,21 +12,21 @@ exports.listEmployees = asyncHandler(async (req, res) => {
 
 // POST /api/employees
 exports.createEmployee = asyncHandler(async (req, res) => {
-  const { name, designation = '', dept = '', place = '', ctc = 0, doj = '', bankName = '', accountNo = '', ifsc = '' } = req.body;
+  const { name, designation = '', dept = '', place = '', ctc = 0, doj = '', bankName = '', accountNo = '', ifsc = '', company = '' } = req.body;
   if (!String(name || '').trim()) throw new ApiError(400, 'Name is required');
   const existing = await Employee.findOne({ name: name.trim() });
   if (existing && existing.deletedAt) {
-    existing.set({ designation, dept, place, ctc: Number(ctc) || 0, doj, bankName, accountNo, ifsc, deletedAt: null });
+    existing.set({ designation, dept, place, ctc: Number(ctc) || 0, doj, bankName, accountNo, ifsc, company, deletedAt: null });
     await existing.save();
     return res.status(201).json(toEmp(existing.toJSON()));
   }
-  const emp = await Employee.create({ name: name.trim(), designation, dept, place, ctc: Number(ctc) || 0, doj, bankName, accountNo, ifsc });
+  const emp = await Employee.create({ name: name.trim(), designation, dept, place, ctc: Number(ctc) || 0, doj, bankName, accountNo, ifsc, company });
   res.status(201).json(toEmp(emp.toJSON()));
 });
 
 // PUT /api/employees/:id
 exports.updateEmployee = asyncHandler(async (req, res) => {
-  const allowed = ['name', 'designation', 'dept', 'place', 'ctc', 'doj', 'bankName', 'accountNo', 'ifsc'];
+  const allowed = ['name', 'designation', 'dept', 'place', 'ctc', 'doj', 'bankName', 'accountNo', 'ifsc', 'company'];
   const update = {};
   for (const k of allowed) if (k in req.body) update[k] = req.body[k];
   if (update.ctc != null) update.ctc = Number(update.ctc) || 0;
@@ -77,6 +77,7 @@ function toEmp(e) {
     name: e.name, designation: e.designation, dept: e.dept,
     place: e.place, ctc: e.ctc, doj: e.doj,
     bankName: e.bankName || '', accountNo: e.accountNo || '', ifsc: e.ifsc || '',
+    company: e.company || '',
   };
 }
 
