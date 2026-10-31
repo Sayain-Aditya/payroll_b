@@ -45,7 +45,7 @@ exports.saveDaily = asyncHandler(async (req, res) => {
   assertDate(date);
   if (!Array.isArray(records) || !records.length) throw new ApiError(400, 'records array is required');
 
-  const VALID = ['present', 'absent', 'leave', 'halfday'];
+  const VALID = ['present', 'absent', 'leave', 'halfday', 'holiday'];
   const ops = records.map(({ employeeId, status }) => {
     if (!employeeId) throw new ApiError(400, 'employeeId is required in each record');
     if (!VALID.includes(status)) throw new ApiError(400, `Invalid status "${status}"`);
@@ -102,8 +102,10 @@ async function syncSheetFromDaily(month, employeeIds, forceAll = false) {
     if (!forceAll && overrideMap[eid]) return;
 
     const statuses = byEmp[eid] || [];
+    const holidayCount = statuses.filter((s) => s === 'holiday').length;
     const present = statuses.filter((s) => s === 'present').length
-                  + statuses.filter((s) => s === 'halfday').length * 0.5;
+                  + statuses.filter((s) => s === 'halfday').length * 0.5
+                  + holidayCount;
     const leave   = statuses.filter((s) => s === 'leave').length;
     const absent  = statuses.filter((s) => s === 'absent').length;
     const emp = empMap[eid];
@@ -112,7 +114,7 @@ async function syncSheetFromDaily(month, employeeIds, forceAll = false) {
 
     await Sheet.findOneAndUpdate(
       { employeeId: eid },
-      { $set: { month, present, leave, absent, absentOverride: null, day, cl, ctc, deletedAt: null, ...(forceAll && { manualOverride: false }) } },
+      { $set: { month, present, leave, absent, holiday: holidayCount, absentOverride: null, day, cl, ctc, deletedAt: null, ...(forceAll && { manualOverride: false }) } },
       { upsert: true, new: true }
     );
   }));

@@ -1,3 +1,4 @@
+const Holiday = require('../models/Holiday');
 const Employee = require('../models/Employee');
 const { getSheetModel } = require('../models/Sheet');
 const ApiError = require('../utils/ApiError');
@@ -30,6 +31,7 @@ exports.addToSheet = asyncHandler(async (req, res) => {
 
   const emps = await Employee.find({ _id: { $in: employeeIds } }).lean({ transform: false });
   const empMap = Object.fromEntries(emps.map((e) => [String(e._id), e]));
+  const holidayCount = await Holiday.countDocuments({ month });
 
   const added = [];
   for (const eid of employeeIds) {
@@ -38,7 +40,7 @@ exports.addToSheet = asyncHandler(async (req, res) => {
     const day = daysInMonth(month);
     const cl = autoCl(emp.doj, month);
     try {
-      const row = await Sheet.create({ employeeId: eid, month, ctc: emp.ctc, day, present: 0, leave: 0, ew: 0, cl, absent: 0 });
+      const row = await Sheet.create({ employeeId: eid, month, ctc: emp.ctc, day, present: 0, leave: 0, ew: 0, cl, absent: 0, holiday: holidayCount });
       added.push(mergeRow(row.toObject(), emp, 0, month));
     } catch (e) {
       if (e.code === 11000) {
@@ -74,7 +76,7 @@ exports.updateRow = asyncHandler(async (req, res) => {
   const row = await Sheet.findById(req.params.id);
   if (!row) throw new ApiError(404, 'Row not found');
 
-  const NUM_FIELDS = ['ctc', 'day', 'present', 'leave', 'ew', 'cl', 'absent', 'absentOverride'];
+  const NUM_FIELDS = ['ctc', 'day', 'present', 'leave', 'ew', 'cl', 'absent', 'absentOverride', 'holiday'];
   for (const k of NUM_FIELDS) {
     if (!(k in req.body)) continue;
     const n = Number(req.body[k]);
@@ -182,6 +184,7 @@ function mergeRow(row, emp, srNo, month) {
     cl: row.cl,
     absent: row.absent,
     absentOverride: row.absentOverride ?? null,
+    holiday: row.holiday ?? 0,
     manualOverride: row.manualOverride ?? false,
     remark: row.remark ?? '',
     srNo,

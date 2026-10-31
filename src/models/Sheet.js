@@ -12,6 +12,7 @@ const sheetSchema = new mongoose.Schema(
     cl: { type: Number, default: 0 },
     absent: { type: Number, default: 0 },
     absentOverride: { type: Number, default: null },
+    holiday: { type: Number, default: 0 },
     manualOverride: { type: Boolean, default: false },
     remark: { type: String, default: '' },
     deletedAt: { type: Date, default: null },
