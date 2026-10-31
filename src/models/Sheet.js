@@ -18,6 +18,8 @@ const sheetSchema = new mongoose.Schema(
 );
 
 sheetSchema.index({ employeeId: 1, month: 1 }, { unique: true });
+sheetSchema.index({ month: 1, deletedAt: 1 });
+sheetSchema.index({ employeeId: 1, deletedAt: 1 });
 
 sheetSchema.set('toJSON', {
   virtuals: false,

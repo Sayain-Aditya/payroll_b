@@ -16,7 +16,8 @@ const employeeSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Expose _id as "id" string in JSON
+employeeSchema.index({ deletedAt: 1, name: 1 });
+employeeSchema.index({ dept: 1, deletedAt: 1 });
 employeeSchema.set('toJSON', {
   virtuals: false,
   transform: (_, obj) => {

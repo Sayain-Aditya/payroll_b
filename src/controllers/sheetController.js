@@ -13,9 +13,9 @@ const assertMonth = (m) => {
 // GET /api/sheet?month=YYYY-MM
 exports.getSheet = asyncHandler(async (req, res) => {
   assertMonth(req.query.month);
-  const rows = await Sheet.find({ month: req.query.month, deletedAt: null }).sort({ createdAt: 1 }).lean({ transform: false });
+  const rows = await Sheet.find({ month: req.query.month, deletedAt: null }, '-deletedAt -createdAt -updatedAt -__v').sort({ createdAt: 1 }).lean();
   const empIds = [...new Set(rows.map((r) => String(r.employeeId)))];
-  const emps = await Employee.find({ _id: { $in: empIds } }).lean({ transform: false });
+  const emps = await Employee.find({ _id: { $in: empIds } }, 'name designation dept place doj ctc').lean();
   const empMap = Object.fromEntries(emps.map((e) => [String(e._id), e]));
   res.json({ rows: rows.map((r, i) => mergeRow(r, empMap[String(r.employeeId)], i + 1)) });
 });
@@ -104,17 +104,20 @@ exports.importExcel = asyncHandler(async (req, res) => {
   if (!rows.length) throw new ApiError(400, 'No employee rows found in the sheet');
 
   const month = req.body.month;
-  let created = 0;
-  let updated = 0;
 
-  for (const p of rows) {
-    // upsert employee
-    const emp = await Employee.findOneAndUpdate(
+  // upsert all employees in parallel
+  const empDocs = await Promise.all(rows.map((p) =>
+    Employee.findOneAndUpdate(
       { name: p.name },
-      { $set: { designation: p.designation || '', dept: p.dept || '', place: p.place || '', ...(p.ctc != null && { ctc: p.ctc }), ...(p.doj && { doj: p.doj }), ...(p.bankName && { bankName: p.bankName }), ...(p.accountNo && { accountNo: p.accountNo }), ...(p.ifsc && { ifsc: p.ifsc }) } },
+      { $set: { designation: p.designation || '', dept: p.dept || '', place: p.place || '', ...(p.ctc != null && { ctc: p.ctc }), ...(p.doj && { doj: p.doj }), ...(p.bankName && { bankName: p.bankName }), ...(p.accountNo && { accountNo: p.accountNo }), ...(p.ifsc && { ifsc: p.ifsc }), deletedAt: null } },
       { upsert: true, new: true, setDefaultsOnInsert: true }
-    );
+    )
+  ));
 
+  // upsert all sheet rows in parallel
+  let created = 0, updated = 0;
+  await Promise.all(rows.map(async (p, i) => {
+    const emp = empDocs[i];
     const day = p.day ?? daysInMonth(month);
     const cl = p.cl ?? autoCl(emp.doj, month);
     const present = p.present ?? day - cl;
@@ -122,14 +125,13 @@ exports.importExcel = asyncHandler(async (req, res) => {
     const ew = p.ew ?? 0;
     const absent = p.absent ?? Math.max(0, day - present - leave - cl);
     const ctc = p.ctc ?? emp.ctc;
-
     const result = await Sheet.findOneAndUpdate(
       { employeeId: emp._id, month },
       { $set: { ctc, day, present, leave, ew, cl, absent } },
       { upsert: true, new: true, includeResultMetadata: true }
     );
     result.lastErrorObject?.updatedExisting ? updated++ : created++;
-  }
+  }));
 
   res.status(201).json({ total: rows.length, created, updated, warnings });
 });

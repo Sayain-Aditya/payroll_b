@@ -6,7 +6,7 @@ const asyncHandler = require('../utils/asyncHandler');
 // GET /api/employees
 exports.listEmployees = asyncHandler(async (req, res) => {
   const filter = { deletedAt: null, ...(req.query.dept ? { dept: req.query.dept } : {}) };
-  const data = await Employee.find(filter).sort({ name: 1 }).lean({ transform: false });
+  const data = await Employee.find(filter, '-deletedAt -createdAt -updatedAt -__v').sort({ name: 1 }).lean();
   res.json({ data: data.map(toEmp) });
 });
 
@@ -62,9 +62,11 @@ exports.restoreEmployee = asyncHandler(async (req, res) => {
 
 // GET /api/employees/:id/history
 exports.getHistory = asyncHandler(async (req, res) => {
-  const emp = await Employee.findById(req.params.id).lean({ transform: false });
+  const [emp, rows] = await Promise.all([
+    Employee.findById(req.params.id, '-deletedAt -createdAt -updatedAt -__v').lean(),
+    Sheet.find({ employeeId: req.params.id, deletedAt: null }, '-deletedAt -createdAt -updatedAt -__v').sort({ month: -1 }).lean(),
+  ]);
   if (!emp) throw new ApiError(404, 'Employee not found');
-  const rows = await Sheet.find({ employeeId: req.params.id, deletedAt: null }).sort({ month: -1 }).lean({ transform: false });
   res.json({ rows: rows.map((r) => mergeEmp(r, emp)) });
 });
 
