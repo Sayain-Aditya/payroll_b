@@ -1,5 +1,5 @@
 const Employee = require('../models/Employee');
-const Sheet = require('../models/Sheet');
+const { getSheetModel } = require('../models/Sheet');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { parseExcel } = require('../utils/parseExcel');
@@ -13,11 +13,12 @@ const assertMonth = (m) => {
 // GET /api/sheet?month=YYYY-MM
 exports.getSheet = asyncHandler(async (req, res) => {
   assertMonth(req.query.month);
-  const rows = await Sheet.find({ month: req.query.month, deletedAt: null }, '-deletedAt -createdAt -updatedAt -__v').sort({ createdAt: 1 }).lean();
+  const Sheet = getSheetModel(req.query.month);
+  const rows = await Sheet.find({ deletedAt: null }, '-deletedAt -createdAt -updatedAt -__v').sort({ createdAt: 1 }).lean();
   const empIds = [...new Set(rows.map((r) => String(r.employeeId)))];
   const emps = await Employee.find({ _id: { $in: empIds } }, 'name designation dept place doj ctc company').lean();
   const empMap = Object.fromEntries(emps.map((e) => [String(e._id), e]));
-  res.json({ rows: rows.map((r, i) => mergeRow(r, empMap[String(r.employeeId)], i + 1)) });
+  res.json({ rows: rows.map((r, i) => mergeRow(r, empMap[String(r.employeeId)], i + 1, req.query.month)) });
 });
 
 // POST /api/sheet/add   body: { month, employeeIds: [] }
@@ -25,6 +26,7 @@ exports.addToSheet = asyncHandler(async (req, res) => {
   const { month, employeeIds } = req.body;
   assertMonth(month);
   if (!Array.isArray(employeeIds) || !employeeIds.length) throw new ApiError(400, 'employeeIds array is required');
+  const Sheet = getSheetModel(month);
 
   const emps = await Employee.find({ _id: { $in: employeeIds } }).lean({ transform: false });
   const empMap = Object.fromEntries(emps.map((e) => [String(e._id), e]));
@@ -35,33 +37,30 @@ exports.addToSheet = asyncHandler(async (req, res) => {
     if (!emp) continue;
     const day = daysInMonth(month);
     const cl = autoCl(emp.doj, month);
-    const present = day - cl;
     try {
-      const row = await Sheet.create({ employeeId: eid, month, ctc: emp.ctc, day, present, leave: 0, ew: 0, cl, absent: 0 });
-      added.push(mergeRow(row.toObject(), emp, 0));
+      const row = await Sheet.create({ employeeId: eid, month, ctc: emp.ctc, day, present: 0, leave: 0, ew: 0, cl, absent: 0 });
+      added.push(mergeRow(row.toObject(), emp, 0, month));
     } catch (e) {
       if (e.code === 11000) {
-        // Row exists but may be soft-deleted — restore it
         const restored = await Sheet.findOneAndUpdate(
-          { employeeId: eid, month },
-          { $set: { deletedAt: null, ctc: emp.ctc, day, present: day - cl, leave: 0, ew: 0, cl, absent: 0 } },
+          { employeeId: eid },
+          { $set: { deletedAt: null, ctc: emp.ctc, day, present: 0, leave: 0, ew: 0, cl, absent: 0 } },
           { new: true }
         );
-        if (restored) added.push(mergeRow(restored.toObject(), emp, 0));
+        if (restored) added.push(mergeRow(restored.toObject(), emp, 0, month));
         continue;
       }
       throw e;
     }
   }
 
-  // re-fetch with correct srNo
-  const allRows = await Sheet.find({ month, deletedAt: null }).sort({ createdAt: 1 }).lean({ transform: false });
+  const allRows = await Sheet.find({ deletedAt: null }).sort({ createdAt: 1 }).lean({ transform: false });
   const allEmpIds = [...new Set(allRows.map((r) => String(r.employeeId)))];
   const allEmps = await Employee.find({ _id: { $in: allEmpIds } }).lean({ transform: false });
   const allEmpMap = Object.fromEntries(allEmps.map((e) => [String(e._id), e]));
   const addedIds = new Set(added.map((r) => r.id));
   const result = allRows
-    .map((r, i) => mergeRow(r, allEmpMap[String(r.employeeId)], i + 1))
+    .map((r, i) => mergeRow(r, allEmpMap[String(r.employeeId)], i + 1, month))
     .filter((r) => addedIds.has(r.id));
 
   res.status(201).json({ rows: result });
@@ -69,6 +68,9 @@ exports.addToSheet = asyncHandler(async (req, res) => {
 
 // PUT /api/sheet/:id
 exports.updateRow = asyncHandler(async (req, res) => {
+  assertMonth(req.query.month || req.body.month || '');
+  const month = req.query.month || req.body.month;
+  const Sheet = getSheetModel(month);
   const row = await Sheet.findById(req.params.id);
   if (!row) throw new ApiError(404, 'Row not found');
 
@@ -79,14 +81,46 @@ exports.updateRow = asyncHandler(async (req, res) => {
     if (!Number.isFinite(n) || n < 0) throw new ApiError(400, `${k} must be a non-negative number`);
     row[k] = n;
   }
+  if ('remark' in req.body) row.remark = String(req.body.remark ?? '').slice(0, 300);
+  row.manualOverride = true;
   await row.save();
 
   const emp = await Employee.findById(row.employeeId).lean({ transform: false });
-  res.json(mergeRow(row.toObject(), emp, null));
+  res.json(mergeRow(row.toObject(), emp, null, month));
+});
+
+// POST /api/sheet/:id/override
+exports.setOverride = asyncHandler(async (req, res) => {
+  assertMonth(req.query.month || '');
+  const Sheet = getSheetModel(req.query.month);
+  const row = await Sheet.findByIdAndUpdate(
+    req.params.id,
+    { $set: { manualOverride: true } },
+    { new: true }
+  );
+  if (!row) throw new ApiError(404, 'Row not found');
+  const emp = await Employee.findById(row.employeeId).lean({ transform: false });
+  res.json(mergeRow(row.toObject(), emp, null, req.query.month));
+});
+
+// DELETE /api/sheet/:id/override
+exports.resetOverride = asyncHandler(async (req, res) => {
+  assertMonth(req.query.month || '');
+  const Sheet = getSheetModel(req.query.month);
+  const row = await Sheet.findByIdAndUpdate(
+    req.params.id,
+    { $set: { manualOverride: false } },
+    { new: true }
+  );
+  if (!row) throw new ApiError(404, 'Row not found');
+  const emp = await Employee.findById(row.employeeId).lean({ transform: false });
+  res.json(mergeRow(row.toObject(), emp, null, req.query.month));
 });
 
 // DELETE /api/sheet/:id  (soft delete)
 exports.deleteRow = asyncHandler(async (req, res) => {
+  assertMonth(req.query.month || '');
+  const Sheet = getSheetModel(req.query.month);
   const row = await Sheet.findOneAndUpdate(
     { _id: req.params.id, deletedAt: null },
     { $set: { deletedAt: new Date() } }
@@ -99,13 +133,12 @@ exports.deleteRow = asyncHandler(async (req, res) => {
 exports.importExcel = asyncHandler(async (req, res) => {
   assertMonth(req.body.month);
   if (!req.file) throw new ApiError(400, 'Excel file is required (field name: file)');
+  const month = req.body.month;
+  const Sheet = getSheetModel(month);
 
   const { rows, warnings } = parseExcel(req.file.buffer, req.body.company || '');
   if (!rows.length) throw new ApiError(400, 'No employee rows found in the sheet');
 
-  const month = req.body.month;
-
-  // upsert all employees in parallel
   const empDocs = await Promise.all(rows.map((p) =>
     Employee.findOneAndUpdate(
       { name: p.name },
@@ -114,7 +147,6 @@ exports.importExcel = asyncHandler(async (req, res) => {
     )
   ));
 
-  // upsert all sheet rows in parallel
   let created = 0, updated = 0;
   await Promise.all(rows.map(async (p, i) => {
     const emp = empDocs[i];
@@ -126,8 +158,8 @@ exports.importExcel = asyncHandler(async (req, res) => {
     const absent = p.absent ?? Math.max(0, day - present - leave - cl);
     const ctc = p.ctc ?? emp.ctc;
     const result = await Sheet.findOneAndUpdate(
-      { employeeId: emp._id, month },
-      { $set: { ctc, day, present, leave, ew, cl, absent } },
+      { employeeId: emp._id },
+      { $set: { month, ctc, day, present, leave, ew, cl, absent } },
       { upsert: true, new: true, includeResultMetadata: true }
     );
     result.lastErrorObject?.updatedExisting ? updated++ : created++;
@@ -137,11 +169,11 @@ exports.importExcel = asyncHandler(async (req, res) => {
 });
 
 // ---- helper ----
-function mergeRow(row, emp, srNo) {
+function mergeRow(row, emp, srNo, month) {
   return {
     id: String(row._id),
     employeeId: String(row.employeeId),
-    month: row.month,
+    month: row.month || month,
     ctc: row.ctc,
     day: row.day,
     present: row.present,
@@ -150,6 +182,8 @@ function mergeRow(row, emp, srNo) {
     cl: row.cl,
     absent: row.absent,
     absentOverride: row.absentOverride ?? null,
+    manualOverride: row.manualOverride ?? false,
+    remark: row.remark ?? '',
     srNo,
     name: emp?.name ?? '',
     designation: emp?.designation ?? '',

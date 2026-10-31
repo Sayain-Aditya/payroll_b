@@ -1,5 +1,5 @@
 const Employee = require('../models/Employee');
-const Sheet = require('../models/Sheet');
+const { getSheetModel } = require('../models/Sheet');
 const asyncHandler = require('../utils/asyncHandler');
 const { daysInMonth, autoCl } = require('../utils/calc');
 const { HIGH_ABSENT_DAYS, SALARY_DROP_PCT } = require('../config/alertRules');
@@ -33,8 +33,8 @@ exports.getAlerts = asyncHandler(async (req, res) => {
   // fetch all active employees + current + prev month sheets in parallel
   const [employees, currentRows, prevRows] = await Promise.all([
     Employee.find({ deletedAt: null }, 'name designation dept doj ctc').lean(),
-    Sheet.find({ month, deletedAt: null }).lean(),
-    Sheet.find({ month: prev, deletedAt: null }).lean(),
+    getSheetModel(month).find({ deletedAt: null }).lean(),
+    getSheetModel(prev).find({ deletedAt: null }).lean(),
   ]);
 
   const currentMap = Object.fromEntries(currentRows.map((r) => [String(r.employeeId), r]));

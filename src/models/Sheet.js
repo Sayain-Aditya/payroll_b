@@ -11,15 +11,16 @@ const sheetSchema = new mongoose.Schema(
     ew: { type: Number, default: 0 },
     cl: { type: Number, default: 0 },
     absent: { type: Number, default: 0 },
-    absentOverride: { type: Number, default: null }, // null = auto-derived on client
+    absentOverride: { type: Number, default: null },
+    manualOverride: { type: Boolean, default: false },
+    remark: { type: String, default: '' },
     deletedAt: { type: Date, default: null },
   },
   { timestamps: true }
 );
 
-sheetSchema.index({ employeeId: 1, month: 1 }, { unique: true });
-sheetSchema.index({ month: 1, deletedAt: 1 });
-sheetSchema.index({ employeeId: 1, deletedAt: 1 });
+sheetSchema.index({ employeeId: 1 }, { unique: true });
+sheetSchema.index({ deletedAt: 1 });
 
 sheetSchema.set('toJSON', {
   virtuals: false,
@@ -32,4 +33,15 @@ sheetSchema.set('toJSON', {
   },
 });
 
-module.exports = mongoose.model('Sheet', sheetSchema);
+// Returns a Mongoose model whose documents live in collection "sheet_YYYY_MM"
+// e.g. month "2026-09" → collection "sheet_2026_09"
+function getSheetModel(month) {
+  const collectionName = `sheet_${month.replace('-', '_')}`;
+  // reuse existing model if already registered to avoid OverwriteModelError
+  if (mongoose.modelNames().includes(collectionName)) {
+    return mongoose.model(collectionName);
+  }
+  return mongoose.model(collectionName, sheetSchema, collectionName);
+}
+
+module.exports = { getSheetModel };
