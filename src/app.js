@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const connectDB = require('./config/db');
 const routes = require('./routes');
 const authRoutes = require('./routes/authRoutes');
 const auth = require('./middleware/auth');
@@ -20,6 +21,12 @@ app.use(cors({
   credentials: true,
 }));
 app.use(express.json());
+
+// ensure DB is connected before every request (safe for serverless)
+app.use(async (req, res, next) => {
+  try { await connectDB(); next(); }
+  catch (err) { res.status(500).json({ error: 'Database connection failed' }); }
+});
 
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 app.use('/api/auth', authRoutes);
