@@ -40,13 +40,13 @@ exports.addToSheet = asyncHandler(async (req, res) => {
     const day = daysInMonth(month);
     const cl = autoCl(emp.doj, month);
     try {
-      const row = await Sheet.create({ employeeId: eid, month, ctc: emp.ctc, day, present: 0, leave: 0, ew: 0, cl, absent: 0, holiday: holidayCount });
+      const row = await Sheet.create({ employeeId: eid, month, ctc: emp.ctc, day, present: 0, leave: 0, ew: 0, cl, absent: 0, holiday: holidayCount, manualOverride: true });
       added.push(mergeRow(row.toObject(), emp, 0, month));
     } catch (e) {
       if (e.code === 11000) {
         const restored = await Sheet.findOneAndUpdate(
           { employeeId: eid },
-          { $set: { deletedAt: null, ctc: emp.ctc, day, present: 0, leave: 0, ew: 0, cl, absent: 0 } },
+          { $set: { deletedAt: null, ctc: emp.ctc, day, present: 0, leave: 0, ew: 0, cl, absent: 0, manualOverride: true } },
           { new: true }
         );
         if (restored) added.push(mergeRow(restored.toObject(), emp, 0, month));
@@ -161,7 +161,7 @@ exports.importExcel = asyncHandler(async (req, res) => {
     const ctc = p.ctc ?? emp.ctc;
     const result = await Sheet.findOneAndUpdate(
       { employeeId: emp._id },
-      { $set: { month, ctc, day, present, leave, ew, cl, absent } },
+      { $set: { month, ctc, day, present, leave, ew, cl, absent, manualOverride: true } },
       { upsert: true, new: true, includeResultMetadata: true }
     );
     result.lastErrorObject?.updatedExisting ? updated++ : created++;
@@ -185,7 +185,7 @@ function mergeRow(row, emp, srNo, month) {
     absent: row.absent,
     absentOverride: row.absentOverride ?? null,
     holiday: row.holiday ?? 0,
-    manualOverride: row.manualOverride ?? false,
+    manualOverride: row.manualOverride ?? true,
     remark: row.remark ?? '',
     srNo,
     name: emp?.name ?? '',
